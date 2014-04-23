@@ -18,4 +18,5 @@
 
 - (IBAction)startButton:(UIButton *)sender;
 - (IBAction)stopButton:(UIButton *)sender;
+- (IBAction)powerOff:(UIButton *)sender;
 @end

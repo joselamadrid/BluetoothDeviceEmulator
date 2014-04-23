@@ -53,4 +53,8 @@
     
     [self.pedometr stop];
 }
+
+- (IBAction)powerOff:(UIButton *)sender {
+    [self.pedometr powerOff];
+}
 @end

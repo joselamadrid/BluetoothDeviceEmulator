@@ -50,13 +50,12 @@ struct STotalActivityData
 - (instancetype)initWithHandler:(RealTimeDataHandler)handler;
 {
     if (self = [super init]) {
-        
-        self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
-        
         memset(&_realTimeData, 0, sizeof(struct SRealTimeData));
         self.realTimeDataHandler = handler;
         self.isNotifying = NO;
         self.isSubcribed = NO;
+        
+        self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
         
     }
     
@@ -89,6 +88,9 @@ struct STotalActivityData
 
 - (void)start
 {
+    if(!self.peripheralManager)
+        self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
+    
     [self.peripheralManager startAdvertising:@{ CBAdvertisementDataServiceUUIDsKey : @[[CBUUID UUIDWithString:@"FFF0"]], CBAdvertisementDataLocalNameKey: @"Pedometr simulator"}];
     self.isNotifying = YES;
     if (self.isSubcribed) {
@@ -101,6 +103,12 @@ struct STotalActivityData
 {
     [self.peripheralManager stopAdvertising];
     self.isNotifying = NO;
+}
+
+- (void)powerOff
+{
+    [self stop];
+    self.peripheralManager = nil;
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)peripheral central:(CBCentral *)central didSubscribeToCharacteristic:(CBCharacteristic *)characteristic {
@@ -208,7 +216,9 @@ struct STotalActivityData
 }
 
 - (void)peripheralManagerIsReadyToUpdateSubscribers:(CBPeripheralManager *)peripheral {
+    
     NSLog(@"peripheralManagerIsReadyToUpdateSubscribers");
+    
     if(self.isNotifying)
     {
         [NSThread sleepForTimeInterval:1];
@@ -220,6 +230,10 @@ struct STotalActivityData
 {
     NSLog(@"didReceiveReadRequest");
     struct STotalActivityData totalActivityData;
+    
+    NSLog(@"start sleep");
+    [NSThread sleepForTimeInterval:15];
+    NSLog(@"stop sleep");
     
     memset(&totalActivityData, 0, sizeof(struct SRealTimeData));
     

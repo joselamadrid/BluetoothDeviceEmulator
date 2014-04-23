@@ -15,5 +15,6 @@ typedef void(^RealTimeDataHandler)(NSNumber* walkSteps, NSNumber* runSteps, NSNu
 
 - (void)start;
 - (void)stop;
+- (void)powerOff;
 
 @end
