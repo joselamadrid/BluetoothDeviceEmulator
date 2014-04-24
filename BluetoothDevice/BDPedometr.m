@@ -40,8 +40,10 @@ struct STotalActivityData
 @property (nonatomic, copy) RealTimeDataHandler realTimeDataHandler;
 @property (nonatomic) BOOL isNotifying;
 @property (nonatomic) BOOL isSubcribed;
+@property (nonatomic) BOOL isRunning;
 
 @property (nonatomic) struct SRealTimeData realTimeData;
+@property (strong, nonatomic) NSTimer *timer;
 
 @end
 
@@ -54,8 +56,13 @@ struct STotalActivityData
         self.realTimeDataHandler = handler;
         self.isNotifying = NO;
         self.isSubcribed = NO;
+        self.isRunning = NO;
         
         self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
+        
+        [self start];
+        
+        self.timer = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(incrementVal) userInfo:nil repeats:YES];
         
     }
     
@@ -70,20 +77,19 @@ struct STotalActivityData
         return;
     }
     
+    if(!self.peripheralManager)
+        self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
     
-    if (peripheral.state == CBPeripheralManagerStatePoweredOn) {
-        self.notifyCharacteristic = [[CBMutableCharacteristic alloc] initWithType:[CBUUID UUIDWithString:@"FFE6"] properties:CBCharacteristicPropertyNotify value:nil permissions:CBAttributePermissionsReadable];
-        CBMutableCharacteristic *readCharacteristic = [[CBMutableCharacteristic alloc] initWithType:[CBUUID UUIDWithString:@"FFE7"] properties:CBCharacteristicPropertyRead value:nil permissions:CBAttributePermissionsReadable];
-        
-        CBMutableService *transferService = [[CBMutableService alloc] initWithType:[CBUUID UUIDWithString:@"FFE5"] primary:YES];
-        
-        transferService.characteristics = @[self.notifyCharacteristic, readCharacteristic ];
-        
-        [self.peripheralManager addService:transferService];
-        
-        [self start];
-        
-    }
+    self.notifyCharacteristic = [[CBMutableCharacteristic alloc] initWithType:[CBUUID UUIDWithString:@"FFE6"] properties:CBCharacteristicPropertyNotify | CBCharacteristicPropertyNotifyEncryptionRequired value:nil permissions:CBAttributePermissionsReadEncryptionRequired];
+    CBMutableCharacteristic *readCharacteristic = [[CBMutableCharacteristic alloc] initWithType:[CBUUID UUIDWithString:@"FFE7"] properties:CBCharacteristicPropertyRead | CBCharacteristicPropertyNotifyEncryptionRequired value:nil permissions:CBAttributePermissionsReadEncryptionRequired];
+    
+    CBMutableService *transferService = [[CBMutableService alloc] initWithType:[CBUUID UUIDWithString:@"FFE5"] primary:YES];
+    
+    transferService.characteristics = @[self.notifyCharacteristic, readCharacteristic ];
+    
+    [self.peripheralManager addService:transferService];
+    [self.peripheralManager startAdvertising:@{ CBAdvertisementDataServiceUUIDsKey : @[[CBUUID UUIDWithString:@"FFF0"]], CBAdvertisementDataLocalNameKey: @"Pedometr simulator"}];
+
 }
 
 - (void)start
@@ -91,23 +97,37 @@ struct STotalActivityData
     if(!self.peripheralManager)
         self.peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil];
     
-    [self.peripheralManager startAdvertising:@{ CBAdvertisementDataServiceUUIDsKey : @[[CBUUID UUIDWithString:@"FFF0"]], CBAdvertisementDataLocalNameKey: @"Pedometr simulator"}];
     self.isNotifying = YES;
-    if (self.isSubcribed) {
-        memset(&_realTimeData, 0, sizeof(struct SRealTimeData));
-        [self sendData:[self getRealTimeData]];
+    self.isRunning = YES;
+}
+
+- (void)incrementVal
+{
+    if(self.isRunning)
+    {
+        _realTimeData.walkSteps += arc4random() % 10 + 5;
+        _realTimeData.runSteps += arc4random() % 15 + 5;
+        _realTimeData.kcal += arc4random() % 20 + 10;
+        _realTimeData.distance += arc4random() % 20 + 10;
+        _realTimeData.activity_time += arc4random() % 20 + 10;
+        
+        self.realTimeDataHandler(@(_realTimeData.walkSteps), @(_realTimeData.runSteps), @(_realTimeData.kcal), @(_realTimeData.distance), @(_realTimeData.activity_time));
+        
+        if(self.isNotifying)
+            [self sendData:[self getRealTimeData]];
     }
 }
 
 - (void)stop
 {
-    [self.peripheralManager stopAdvertising];
+    memset(&_realTimeData, 0, sizeof(struct SRealTimeData));
+    self.realTimeDataHandler(@(_realTimeData.walkSteps), @(_realTimeData.runSteps), @(_realTimeData.kcal), @(_realTimeData.distance), @(_realTimeData.activity_time));
     self.isNotifying = NO;
+    self.isRunning = NO;
 }
 
 - (void)powerOff
 {
-    [self stop];
     self.peripheralManager = nil;
 }
 
@@ -120,22 +140,27 @@ struct STotalActivityData
     [self sendData:[self getRealTimeData]];
 }
 
+- (NSData*)getRealTimeData
+{
+    _sendDataIndex = 0;
+    
+    
+    NSData *data = [NSData dataWithBytes:&_realTimeData length:sizeof(struct SRealTimeData)];
+    
+    return data;
+}
+
 - (void)peripheralManager:(CBPeripheralManager *)peripheral central:(CBCentral *)central didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic
 {
     NSLog(@"didUnsubscribeFromCharacteristic");
     
     self.isSubcribed = NO;
-    
-    memset(&_realTimeData, 0, sizeof(struct SRealTimeData));
-    self.realTimeDataHandler(@(_realTimeData.walkSteps), @(_realTimeData.runSteps), @(_realTimeData.kcal), @(_realTimeData.distance), @(_realTimeData.activity_time));
+
     self.isNotifying = NO;
     [self sendData:nil];
 }
 
 - (void)sendData:(NSData*)data {
-    
-    
-
     
     // end of message?
     if (data == nil) {
@@ -199,31 +224,10 @@ struct STotalActivityData
         }
     }
 }
-- (NSData*)getRealTimeData
-{
-    _sendDataIndex = 0;
-    _realTimeData.walkSteps += 5;
-    _realTimeData.runSteps += 10;
-    _realTimeData.kcal += 15;
-    _realTimeData.distance += 7;
-    _realTimeData.activity_time += 20;
-    
-    NSData *data = [NSData dataWithBytes:&_realTimeData length:sizeof(struct SRealTimeData)];
-    
-    self.realTimeDataHandler(@(_realTimeData.walkSteps), @(_realTimeData.runSteps), @(_realTimeData.kcal), @(_realTimeData.distance), @(_realTimeData.activity_time));
-    
-    return data;
-}
 
 - (void)peripheralManagerIsReadyToUpdateSubscribers:(CBPeripheralManager *)peripheral {
     
-    NSLog(@"peripheralManagerIsReadyToUpdateSubscribers");
-    
-    if(self.isNotifying)
-    {
-        [NSThread sleepForTimeInterval:1];
-        [self sendData:[self getRealTimeData]];
-    }
+    //NSLog(@"peripheralManagerIsReadyToUpdateSubscribers");
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)peripheral didReceiveReadRequest:(CBATTRequest *)request
@@ -231,9 +235,7 @@ struct STotalActivityData
     NSLog(@"didReceiveReadRequest");
     struct STotalActivityData totalActivityData;
     
-    NSLog(@"start sleep");
-    [NSThread sleepForTimeInterval:15];
-    NSLog(@"stop sleep");
+    [NSThread sleepForTimeInterval:arc4random() % 15 + 1];
     
     memset(&totalActivityData, 0, sizeof(struct SRealTimeData));
     
